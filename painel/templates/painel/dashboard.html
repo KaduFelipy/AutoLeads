@@ -1,0 +1,21 @@
+{% extends 'painel/base.html' %}
+{% block title %}Visão geral{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">RESUMO DA OPERAÇÃO</p><h1>Visão geral</h1><p class="muted">Acompanhe pesquisas, contatos e campanhas em um só lugar.</p></div><a class="button primary" href="{% url 'pesquisas' %}">Nova pesquisa <span>＋</span></a></div>
+<section class="metric-grid" aria-label="Indicadores">
+  <article class="metric"><div class="metric-icon mint">⌕</div><p>Empresas encontradas</p><strong>{{ total_empresas|default:0 }}</strong><small>contatos na sua base</small></article>
+  <article class="metric"><div class="metric-icon cream">◷</div><p>Pesquisas realizadas</p><strong>{{ total_pesquisas|default:0 }}</strong><small>execuções registradas</small></article>
+  <article class="metric"><div class="metric-icon lavender">▤</div><p>Campanhas ativas</p><strong>{{ campanhas_ativas|default:0 }}</strong><small>em andamento ou pausadas</small></article>
+  <article class="metric"><div class="metric-icon peach">◉</div><p>Conexão WhatsApp</p><strong class="status-value">{% if conectado %}Conectado{% else %}Offline{% endif %}</strong><small><a href="{% url 'whatsapp' %}">Ver conexão →</a></small></article>
+</section>
+<div class="dashboard-grid">
+  <section class="panel"><div class="panel-heading"><div><h2>Pesquisas recentes</h2><p class="muted">Últimas atividades de captura</p></div><a class="text-link" href="{% url 'pesquisas' %}">Ver todas →</a></div>
+    {% if pesquisas_recentes %}<div class="activity-list">{% for pesquisa in pesquisas_recentes %}<a class="activity-row" href="{% url 'pesquisas' %}"><span class="activity-icon">⌕</span><span class="activity-copy"><strong>{{ pesquisa.termos }}</strong><small>{{ pesquisa.inicio|date:'d/m/Y H:i'|default:'Aguardando início' }}</small></span><span class="badge">{{ pesquisa.estado }}</span></a>{% endfor %}</div>{% else %}<div class="empty-state"><span class="empty-symbol">⌕</span><strong>Nenhuma pesquisa ainda</strong><p>Encontre empresas por segmento e cidade para começar sua base.</p><a class="button outline" href="{% url 'pesquisas' %}">Criar pesquisa</a></div>{% endif %}
+  </section>
+  <section class="panel quick-panel"><div class="panel-heading"><div><h2>Acesso rápido</h2><p class="muted">Continue de onde parou</p></div></div>
+    <a class="quick-link" href="{% url 'contatos' %}"><span class="quick-icon mint">♧</span><span><strong>Explorar contatos</strong><small>Filtre e organize sua base</small></span><b>→</b></a>
+    <a class="quick-link" href="{% url 'textos' %}"><span class="quick-icon cream">✎</span><span><strong>Preparar um texto</strong><small>Personalize sua mensagem</small></span><b>→</b></a>
+    <a class="quick-link" href="{% url 'campanhas' %}"><span class="quick-icon lavender">↗</span><span><strong>Nova campanha</strong><small>Revise antes de iniciar</small></span><b>→</b></a>
+  </section>
+</div>
+{% endblock %}

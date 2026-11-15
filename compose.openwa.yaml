@@ -1,0 +1,31 @@
+name: scrapgooglemaps-openwa
+services:
+  openwa:
+    image: ${OPENWA_IMAGE:-ghcr.io/rmyndharis/openwa:latest}
+    restart: unless-stopped
+    stop_grace_period: 45s
+    ports:
+      - "127.0.0.1:2785:2785"
+    volumes:
+      - openwa-data:/app/data
+    environment:
+      NODE_ENV: production
+      PORT: "2785"
+      API_MASTER_KEY: ${OPENWA_API_KEY:?Execute mensagens_openwa.py configurar primeiro}
+      DATABASE_TYPE: sqlite
+      DATABASE_NAME: /app/data/openwa.sqlite
+      DATABASE_SYNCHRONIZE: "true"
+      ENGINE_TYPE: whatsapp-web.js
+      WWEBJS_WEB_VERSION: "off"
+      SESSION_DATA_PATH: /app/data/sessions
+      STORAGE_TYPE: local
+      STORAGE_LOCAL_PATH: /app/data/media
+      PUPPETEER_HEADLESS: "true"
+      REDIS_ENABLED: "false"
+      QUEUE_ENABLED: "false"
+      CACHE_ENABLED: "false"
+      AUTO_START_SESSIONS: "true"
+      SERVE_DASHBOARD: "true"
+      ENABLE_SWAGGER: "true"
+volumes:
+  openwa-data:

@@ -1,0 +1,63 @@
+{% extends 'painel/base.html' %}
+{% load static %}
+{% block title %}Campanhas{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">ENVIO CONTROLADO</p><h1>Campanhas</h1><p class="muted">Prepare uma prévia e revise cada destinatário antes de iniciar.</p></div></div>
+<section class="panel campaign-panel">
+  <div class="panel-heading"><div><h2>Preparar campanha</h2><p class="muted">A lista será congelada nesta prévia.</p></div></div>
+  <form method="post" id="campaign-form">
+    {% csrf_token %}
+    <input type="hidden" name="preservar_quantidades" id="preservar-quantidades" value="{{ preservar_quantidades_json }}">
+    <input type="hidden" name="preservar_empresa_ids" id="preservar-empresa-ids" value="{{ preservar_empresa_ids_json }}">
+    {% if acao != 'atualizar' and form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+    {% for erro in erros_atualizacao %}<div class="form-errors">{{ erro }}</div>{% endfor %}
+    <div class="filter-grid campaign-common">
+      {% for field in form %}
+        {% if field.name == 'nome' or field.name == 'texto' or field.name == 'mensagem' or field.name == 'cidade' or field.name == 'com_telefone' or field.name == 'ultimo_disparo' or field.name == 'desde' or field.name == 'intervalo' %}
+          <div class="field {% if field.name == 'mensagem' %}campaign-message-field{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<small class="help-text">{{ field.help_text }}</small>{% endif %}
+            {% if acao == 'atualizar' %}{% for nome_erro, lista_erros in erros_filtro.items %}{% if field.name == nome_erro %}{% for error in lista_erros %}<small class="field-error">{{ error }}</small>{% endfor %}{% endif %}{% endfor %}
+            {% else %}{% for error in field.errors %}<small class="field-error">{{ error }}</small>{% endfor %}{% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+    <fieldset class="selection-modes"><legend>Como escolher os clientes</legend>
+      <label><input type="radio" name="modo" value="quantidades" {% if modo == 'quantidades' %}checked{% endif %}> <span><strong>Quantidade por grupo</strong><small>Defina uma cota para cada grupo.</small></span></label>
+      <label><input type="radio" name="modo" value="manual" {% if modo == 'manual' %}checked{% endif %}> <span><strong>Escolher clientes</strong><small>Marque empresas específicas pelo nome.</small></span></label>
+      {% if erros_modo %}{% for error in erros_modo %}<small class="field-error mode-error">{{ error }}</small>{% endfor %}{% endif %}
+    </fieldset>
+    <section class="selection-mode-panel" data-mode-panel="quantidades" aria-label="Quantidade por grupo">
+      <div class="selection-summary"><strong>Total solicitado: <span id="quota-total">0</span></strong><span class="muted">Informe números inteiros de 0 a 1000; o total deve ficar entre 1 e 1000.</span></div>
+      <div class="quota-grid">
+        {% for grupo in grupos %}
+          <label class="quota-card"><span class="group-type">{% if grupo.tipo == 'sem_classificacao' %}Grupo virtual{% elif grupo.tipo == 'ramo' %}Ramo{% else %}Categoria{% endif %}</span><strong>{{ grupo.nome }}</strong><small>{{ grupo.empresas|length }} empresas no filtro atual</small>
+            <input type="number" name="{{ grupo.campo_cota_nome }}" id="id_{{ grupo.campo_cota_nome }}" min="0" max="1000" step="1" value="{{ grupo.cota_atual }}" data-quota aria-label="Quantidade para {{ grupo.nome }}">
+            {% for error in grupo.erros_cota %}<small class="field-error">{{ error }}</small>{% endfor %}
+          </label>
+        {% endfor %}
+      </div>
+    </section>
+    <section class="selection-mode-panel" data-mode-panel="manual" aria-label="Escolher clientes">
+      <div class="selection-summary"><label for="company-search">Buscar por nome</label><input id="company-search" type="search" placeholder="Digite parte do nome" autocomplete="off"><strong>Empresas distintas marcadas: <span id="manual-total">0</span></strong></div>
+      {% for grupo in grupos %}
+        <details class="company-group" data-group-key="{{ grupo.chave }}" open>
+          <summary><span>{{ grupo.nome }}</span><span class="group-count">{{ grupo.empresas|length }} empresas · Marcadas neste grupo: <span data-group-count="{{ grupo.chave }}">{{ grupo.selecionados }}</span></span></summary>
+          <div class="company-list">
+            {% for empresa in grupo.empresas %}
+              <label class="company-choice" data-company-row data-company-name="{{ empresa.nome|lower }}"><input type="checkbox" name="empresa_ids" value="{{ empresa.pk }}" data-empresa-id="{{ empresa.pk }}" {% if empresa.pk in selecao_ids %}checked{% endif %}><span><strong>{{ empresa.nome }}</strong><small>{{ empresa.telefone|default:'Sem telefone' }}</small></span></label>
+            {% empty %}<p class="muted empty-group">Nenhuma empresa neste grupo com os filtros atuais.</p>{% endfor %}
+          </div>
+        </details>
+      {% endfor %}
+      {% if selecionados_fora_filtro %}
+        <section class="outside-selection"><h3>Selecionados fora do filtro</h3><p class="muted">Eles continuam marcados para a próxima prévia e serão excluídos pelos filtros atuais.</p>
+          {% for empresa in selecionados_fora_filtro %}<label class="company-choice"><input type="checkbox" name="empresa_ids" value="{{ empresa.pk }}" data-empresa-id="{{ empresa.pk }}" checked><span><strong>{{ empresa.nome }}</strong><small>{{ empresa.telefone|default:'Sem telefone' }}</small></span></label>{% endfor %}
+        </section>
+      {% endif %}
+    </section>
+    <div class="campaign-filter-actions"><span class="muted">Atualizar a lista preserva os dados preenchidos e não cria uma campanha.</span><button class="button outline" type="submit" name="acao" value="atualizar" formnovalidate>Atualizar lista</button><button class="button primary" type="submit" name="acao" value="preparar">Preparar prévia</button></div>
+  </form>
+</section>
+<section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Campanha</th><th>Estado</th><th>Destinatários</th><th>Criada em</th><th></th></tr></thead><tbody>{% for campanha in campanhas %}<tr><td>{{ campanha.nome }}</td><td><span class="badge">{{ campanha.get_estado_display }}</span></td><td>{{ campanha.destinatarios.count }}</td><td>{{ campanha.criado_em|date:'d/m/Y H:i' }}</td><td><a href="{% url 'campanha_detalhe' campanha.pk %}">Abrir revisão →</a></td></tr>{% empty %}<tr><td colspan="5">Nenhuma campanha preparada.</td></tr>{% endfor %}</tbody></table></div></section>
+<script src="{% static 'painel/campanhas.js' %}" defer></script>
+{% endblock %}

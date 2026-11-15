@@ -1,0 +1,36 @@
+{% load static %}<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Painel local{% endblock %} · Mapa &amp; Contatos</title>
+  <link rel="stylesheet" href="{% static 'painel/painel.css' %}">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark">M</span><span>Mapa &amp;<br>Contatos</span></a>
+    <p class="nav-caption">OPERAÇÃO</p>
+    <nav aria-label="Navegação principal">
+      <a href="{% url 'dashboard' %}" class="{% if secao == 'inicio' %}active{% endif %}">Visão geral</a>
+      <a href="{% url 'pesquisas' %}" class="{% if secao == 'pesquisas' %}active{% endif %}">Pesquisas</a>
+      <a href="{% url 'contatos' %}" class="{% if secao == 'contatos' %}active{% endif %}">Contatos</a>
+      <a href="{% url 'textos' %}" class="{% if secao == 'textos' %}active{% endif %}">Textos</a>
+      <a href="{% url 'campanhas' %}" class="{% if secao == 'campanhas' %}active{% endif %}">Campanhas</a>
+      <a href="{% url 'historico' %}" class="{% if secao == 'historico' %}active{% endif %}">Histórico</a>
+    </nav>
+    <p class="nav-caption secondary-caption">CONFIGURAÇÃO</p>
+    <nav aria-label="Configuração">
+      <a href="{% url 'whatsapp' %}" class="{% if secao == 'whatsapp' %}active{% endif %}">WhatsApp</a>
+      <a href="{% url 'tags' %}" class="{% if secao == 'tags' %}active{% endif %}">Tags e regras</a>
+    </nav>
+    <div class="sidebar-foot"><span class="local-dot"></span> Ambiente local</div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><span>Painel de prospecção</span><div class="connection"><i class="dot {% if conectado %}online{% endif %}"></i>{% if conectado %}WhatsApp conectado{% else %}WhatsApp desconectado{% endif %}</div></header>
+    {% if messages %}<div class="flash-list">{% for message in messages %}<div class="flash {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+    {% block content %}{% endblock %}
+    <footer>Uso local · Horários em Brasília</footer>
+  </main>
+</div>
+</body>
+</html>
