@@ -99,3 +99,57 @@ class SelectionTests(TestCase):
         for payload in invalidos:
             with self.subTest(payload=payload), self.assertRaises(ValueError):
                 validar_selecao(payload)
+
+    def test_lista_manual_busca_literal_normalizada_e_nao_duplica_multitag(self):
+        from painel.models import Empresa, Perfil
+        from painel.services.selection import listar_empresas_selecao
+
+        academia = Empresa.objects.create(nome='  Academia São Lucas  ', maps_id='selection:academia')
+        Perfil.objects.create(empresa=academia).tags.add(self.ramo, self.categoria)
+        pagina = listar_empresas_selecao({}, busca=' ACADÊMIA   SAO ')
+        self.assertEqual(pagina['total'], 1)
+        self.assertEqual([item['id'] for item in pagina['empresas']], [academia.pk])
+        self.assertEqual(pagina['empresas'][0]['classificacoes'], [
+            {'chave': f'tag:{self.ramo.pk}', 'nome': self.ramo.nome, 'tipo': 'ramo'},
+            {'chave': f'tag:{self.categoria.pk}', 'nome': self.categoria.nome, 'tipo': 'categoria'},
+        ])
+
+    def test_lista_manual_trata_meta_caracteres_como_literais_e_pagina_global(self):
+        from painel.models import Empresa, Perfil
+        from painel.services.selection import listar_empresas_selecao
+
+        literal = Empresa.objects.create(nome='Loja %_[] (.*)', maps_id='selection:literal')
+        for index in range(120):
+            empresa = Empresa.objects.create(nome=f'Empresa {index:03}', maps_id=f'selection:paged:{index}')
+            Perfil.objects.get_or_create(empresa=empresa)[0].tags.add(self.ramo, self.categoria)
+        self.assertEqual(listar_empresas_selecao({}, busca='%_[] (.*)')['empresas'][0]['id'], literal.pk)
+        paginas = [listar_empresas_selecao({}, pagina=n) for n in (1, 2, 3)]
+        self.assertEqual([p['total'] for p in paginas], [127, 127, 127])
+        self.assertEqual([len(p['empresas']) for p in paginas], [50, 50, 27])
+        ids = [e['id'] for p in paginas for e in p['empresas']]
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_lista_manual_valida_busca_classificacao_e_pagina(self):
+        from painel.services.selection import listar_empresas_selecao
+
+        with self.assertRaises(ValueError):
+            listar_empresas_selecao({}, busca='x' * 201)
+        with self.assertRaises(ValueError):
+            listar_empresas_selecao({}, classificacao=f'tag:{self.placeholder.pk}')
+        with self.assertRaises(ValueError):
+            listar_empresas_selecao({}, pagina='abc')
+
+    def test_lista_manual_combina_nome_e_classificacao_e_ajusta_pagina(self):
+        from painel.models import Empresa, Perfil
+        from painel.services.selection import listar_empresas_selecao
+
+        academia = Empresa.objects.create(nome='Academia A', maps_id='selection:and:a')
+        oficina = Empresa.objects.create(nome='Academia B', maps_id='selection:and:b')
+        Perfil.objects.create(empresa=academia).tags.add(self.ramo)
+        Perfil.objects.create(empresa=oficina).tags.add(self.categoria)
+        resultado = listar_empresas_selecao({}, busca='academia', classificacao=f'tag:{self.ramo.pk}')
+        self.assertEqual([item['id'] for item in resultado['empresas']], [academia.pk])
+        final = listar_empresas_selecao({}, busca='sem resultado', pagina=99)
+        self.assertEqual((final['pagina'], final['total_paginas'], final['total']), (1, 1, 0))
+        longa = listar_empresas_selecao({}, pagina=99)
+        self.assertEqual(longa['pagina'], longa['total_paginas'])

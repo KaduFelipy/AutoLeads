@@ -1,3 +1,4 @@
+import json
 import sys
 import types
 from unittest.mock import patch
@@ -28,6 +29,70 @@ class InterfaceRoutesTests(TestCase):
                 with self.subTest(nome=nome):
                     resposta = self.client.get(reverse(nome))
                     self.assertEqual(resposta.status_code, 200)
+
+    def test_lista_de_empresas_json_sem_conexao_ou_renderizacao_do_painel(self):
+        from painel.models import Empresa
+        empresa = Empresa.objects.create(nome='Academia São', telefone='5546999000000', maps_id='json-academia')
+        Empresa.objects.create(nome='Sem telefone', maps_id='json-sem-telefone')
+        with patch('painel.views._base', side_effect=AssertionError('não deve consultar estado')):
+            resposta = self.client.get('/campanhas/empresas/', {'q': ' ACADEMIA  SAO '})
+        self.assertEqual(resposta.status_code, 200)
+        self.assertIn('no-store', resposta.headers['Cache-Control'])
+        self.assertEqual(resposta.json()['empresas'][0]['id'], empresa.pk)
+
+    def test_rota_empresas_valida_erros_metodo_e_filtro_telefone_omitido(self):
+        from painel.models import Empresa
+        com = Empresa.objects.create(nome='Com telefone', telefone='5546999000001', maps_id='json-com')
+        Empresa.objects.create(nome='Sem telefone', maps_id='json-sem')
+        sem_parametro = self.client.get('/campanhas/empresas/')
+        qualquer = self.client.get('/campanhas/empresas/', {'com_telefone': ''})
+        self.assertEqual([item['id'] for item in sem_parametro.json()['empresas']], [com.pk])
+        self.assertEqual(qualquer.json()['total'], 2)
+        for query in ({'q': 'x' * 201}, {'pagina': '0'}, {'classificacao': 'tag:99999'}):
+            with self.subTest(query=query):
+                resposta = self.client.get('/campanhas/empresas/', query)
+                self.assertEqual(resposta.status_code, 400)
+                self.assertIn('erros', resposta.json())
+                self.assertIn('no-store', resposta.headers['Cache-Control'])
+        self.assertEqual(self.client.post('/campanhas/empresas/').status_code, 405)
+
+    def test_pagina_campanhas_renderiza_unica_lista_global_de_empresas(self):
+        from painel.models import Empresa
+        primeiras = [Empresa.objects.create(nome=f'Empresa {i:03}', telefone='5546999000000', maps_id=f'camp-page:{i}') for i in range(55)]
+        resposta = self.client.get(reverse('campanhas'))
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.context['empresas_pagina']['total'], 55)
+        self.assertEqual(len(resposta.context['empresas_pagina']['empresas']), 50)
+        self.assertNotContains(resposta, f'data-empresa-id="{primeiras[-1].pk}"')
+
+    def test_atualizar_preserva_ids_offpage_e_nao_restringe_por_busca(self):
+        from painel.models import Empresa
+        primeira = Empresa.objects.create(nome='Academia', telefone='5546999000000', maps_id='offpage:a')
+        fora_busca = Empresa.objects.create(nome='Mecânica', telefone='5546999000002', maps_id='offpage:m')
+        resposta = self.client.post(reverse('campanhas'), {
+            'acao': 'atualizar', 'modo': 'manual', 'empresa_ids': [primeira.pk, fora_busca.pk],
+            'preservar_empresa_ids': json.dumps([primeira.pk, fora_busca.pk]),
+            'preservar_quantidades': '{}', 'cidade': '', 'com_telefone': 'sim',
+            'ultimo_disparo': '', 'nome': 'rascunho', 'mensagem': 'Olá {nome}',
+            'intervalo': '5', 'limite': '50',
+            'q': 'academia', 'classificacao': 'todas', 'pagina': '1',
+        })
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.context['selecao_ids'], {primeira.pk, fora_busca.pk})
+        self.assertEqual(resposta.context['fora_visualizacao'], [fora_busca.pk])
+        self.assertEqual(resposta.context['selecionados_fora_filtro'], [])
+
+    def test_post_com_1000_empresas_mantem_limite_de_selecao(self):
+        ids = [str(pk) for pk in range(1, 1001)]
+        resposta = self.client.post(reverse('campanhas'), {
+            'acao': 'atualizar', 'modo': 'manual', 'empresa_ids': ids,
+            'preservar_empresa_ids': json.dumps(ids), 'preservar_quantidades': '{}',
+            'cidade': '', 'com_telefone': 'sim', 'ultimo_disparo': '', 'desde': '',
+            'nome': 'Seleção máxima', 'mensagem': 'Oi {nome}', 'intervalo': '5',
+            'limite': '1000', 'q': '', 'classificacao': 'todas', 'pagina': '1',
+        })
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.context['selecao_ids'], set(range(1, 1001)))
 
     def test_endpoints_de_acao_recusam_get(self):
         for nome in ('conectar', 'campanha_acao', 'reenvio'):

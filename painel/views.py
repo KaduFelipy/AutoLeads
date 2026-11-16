@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.http import HttpResponse
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
@@ -7,18 +8,14 @@ from . import forms
 
 
 def _conexao():
-    try:
-        from .services.integration import estado_conexao
-        estado = estado_conexao()
-        return estado if isinstance(estado, dict) else {'conectado': bool(estado)}
-    except (ImportError, RuntimeError, OSError, ValueError):
-        return {}
+    from .services.status import observar_conexao
+    return observar_conexao()
 
 
-def _base(request, secao, **contexto):
-    estado = _conexao()
-    conectado = estado.get('conectado', estado.get('connected', estado.get('status') in ('CONNECTED', 'connected', 'conectado')))
-    return {'secao': secao, 'conectado': conectado, **contexto}
+def _base(request, secao, *, estado_observado=None, **contexto):
+    estado = estado_observado if estado_observado is not None else _conexao()
+    return {'secao': secao, 'conectado': estado.get('conectado') is True,
+            'estado_conexao': estado, **contexto}
 
 
 def _rotular_tentativa(tentativa):
@@ -157,7 +154,7 @@ def texto_editar(request, pk=None):
 def campanhas(request):
     import json
     from .models import Campanha, Empresa
-    from .services.selection import listar_grupos
+    from .services.selection import listar_empresas_selecao, listar_grupos
 
     def filtros_de(dados):
         return {
@@ -268,6 +265,41 @@ def campanhas(request):
             messages.success(request, 'Prévia preparada. Revise cada destinatário antes de iniciar.')
             return redirect('campanha_detalhe', pk=campanha.pk)
 
+    filtros_form = filtro_form.cleaned_data if filtro_form.is_valid() else {}
+    filtros_atuais = {
+        'cidade': filtros_form.get('cidade', '').strip(),
+        'com_telefone': {'sim': True, 'nao': False}.get(filtros_form.get('com_telefone', 'sim')),
+        'ultimo_disparo': filtros_form.get('ultimo_disparo') or None,
+        'desde': filtros_form['desde'].isoformat() if filtros_form.get('desde') else None,
+    }
+    busca_ui = request.POST.get('q', '') if request.method == 'POST' else ''
+    classificacao_ui = request.POST.get('classificacao', 'todas') if request.method == 'POST' else 'todas'
+    pagina_ui = request.POST.get('pagina', '1') if request.method == 'POST' else '1'
+    try:
+        empresas_pagina = listar_empresas_selecao(filtros_atuais, busca=busca_ui,
+            classificacao=classificacao_ui, pagina=pagina_ui)
+    except ValueError:
+        empresas_pagina = listar_empresas_selecao({'com_telefone': True})
+        busca_ui, classificacao_ui = '', 'todas'
+    empresas_carregadas = {item['id']: item for item in empresas_pagina['empresas']}
+    if selecao_ids:
+        from .models import Perfil, Tag
+        placeholder = {tag.pk for tag in Tag.objects.filter(tipo=Tag.Tipo.CATEGORIA,
+                     nome__iexact='sem classificação')}
+        selecionadas_obj = (Empresa.objects.filter(pk__in=selecao_ids)
+                            .select_related('perfil').prefetch_related('perfil__tags'))
+        for empresa in selecionadas_obj:
+            try:
+                tags = [tag for tag in empresa.perfil.tags.all() if tag.pk not in placeholder]
+            except Perfil.DoesNotExist:
+                tags = []
+            empresas_carregadas[empresa.pk] = {
+                'id': empresa.pk, 'nome': empresa.nome, 'telefone': empresa.telefone or None,
+                'classificacoes': ([{'chave': f'tag:{tag.pk}', 'nome': tag.nome, 'tipo': tag.tipo}
+                                    for tag in tags] or [{'chave': 'sem_classificacao',
+                                                         'nome': 'Sem classificação',
+                                                         'tipo': 'sem_classificacao'}]),
+            }
     grupos_ui = []
     for grupo in grupos:
         item = dict(grupo)
@@ -275,18 +307,25 @@ def campanhas(request):
         item['campo_cota'] = form[campo_cota]
         item['campo_cota_nome'] = campo_cota
         item['cota_atual'] = quantidades_estado.get(campo_cota, '')
-        item['selecionados'] = len({
-            empresa.pk for empresa in grupo['empresas'] if empresa.pk in selecao_ids
-        })
+        item['selecionados'] = sum(
+            1 for pk in selecao_ids if any(tag['chave'] == grupo['chave']
+                                           for tag in empresas_carregadas.get(pk, {}).get('classificacoes', []))
+        )
         item['erros_cota'] = [] if atualizar else form.errors.get(campo_cota, [])
         grupos_ui.append(item)
 
     erros_modo = [] if atualizar else form.errors.get('modo', [])
     preservar_quantidades_json = json.dumps(quantidades_estado, ensure_ascii=False)
     preservar_empresa_ids_json = json.dumps(selecao_ids)
+    empresas_selecionadas_json = [empresas_carregadas[pk] for pk in selecao_ids
+                                  if pk in empresas_carregadas]
     return render(request, 'painel/campanhas.html', _base(request, 'campanhas', form=form,
         campanhas=Campanha.objects.order_by('-criado_em'), grupos=grupos_ui,
         selecionados_fora_filtro=selecionados_fora_filtro, modo=modo or 'quantidades', acao=acao,
+        empresas_pagina=empresas_pagina, empresas_selecionadas_json=empresas_selecionadas_json,
+        empresas_pagina_json=empresas_pagina['empresas'],
+        busca_ui=busca_ui, classificacao_ui=classificacao_ui,
+        fora_visualizacao=[pk for pk in selecao_ids if pk not in {item['id'] for item in empresas_pagina['empresas']}],
         selecao_ids=set(selecao_ids), erros_filtro=erros_filtro,
         erros_atualizacao=erros_atualizacao, erros_modo=erros_modo,
         preservar_quantidades_json=preservar_quantidades_json,
@@ -294,16 +333,104 @@ def campanhas(request):
 
 
 @require_GET
+def empresas_selecao(request):
+    from .services.selection import listar_empresas_selecao
+
+    busca = request.GET.get('q', '')
+    classificacao = request.GET.get('classificacao', 'todas')
+    pagina = request.GET.get('pagina', '1')
+    parametros_permitidos = {'q', 'classificacao', 'pagina', 'cidade', 'com_telefone',
+                             'ultimo_disparo', 'desde'}
+    erros = {}
+    extras = set(request.GET) - parametros_permitidos
+    if extras:
+        erros['consulta'] = ['A consulta contém parâmetros desconhecidos.']
+    filtro_form = forms.CampanhaFiltroForm(request.GET)
+    if not filtro_form.is_valid():
+        erros.update({campo: list(lista) for campo, lista in filtro_form.errors.items()})
+    if len(busca) > 200:
+        erros['q'] = ['A busca deve ter no máximo 200 caracteres.']
+    if erros:
+        resposta = JsonResponse({'erros': erros}, status=400)
+        resposta['Cache-Control'] = 'no-store'
+        return resposta
+    dados = filtro_form.cleaned_data
+    if 'com_telefone' not in request.GET:
+        dados['com_telefone'] = 'sim'
+    filtros = {
+        'cidade': dados['cidade'].strip(),
+        'com_telefone': {'sim': True, 'nao': False}.get(dados['com_telefone']),
+        'ultimo_disparo': dados['ultimo_disparo'] or None,
+        'desde': dados['desde'].isoformat() if dados['desde'] else None,
+    }
+    try:
+        resultado = listar_empresas_selecao(filtros, busca=busca,
+            classificacao=classificacao, pagina=pagina)
+    except ValueError as erro:
+        resposta = JsonResponse({'erros': {'consulta': [str(erro)]}}, status=400)
+        resposta['Cache-Control'] = 'no-store'
+        return resposta
+    resposta = JsonResponse(resultado)
+    resposta['Cache-Control'] = 'no-store'
+    return resposta
+
+
+def estado_painel(request):
+    import re
+
+    if request.method != 'GET':
+        resposta = JsonResponse({'erros': {'metodo': ['Use GET para consultar o estado.']}}, status=405)
+        resposta['Cache-Control'] = 'no-store'
+        resposta['Allow'] = 'GET'
+        return resposta
+    extras = set(request.GET) - {'secao', 'campanha_id'}
+    secao = request.GET.get('secao', '')
+    campanha_id = request.GET.get('campanha_id')
+    tem_campanha_id = 'campanha_id' in request.GET
+    if extras or not secao or (secao == 'campanha' and not tem_campanha_id) or (secao != 'campanha' and tem_campanha_id):
+        resposta = JsonResponse({'erros': {'consulta': ['Parâmetros de estado inválidos.']}}, status=400)
+    elif campanha_id and not re.fullmatch(r'[1-9][0-9]*', campanha_id):
+        resposta = JsonResponse({'erros': {'campanha_id': ['Informe um identificador positivo.']}}, status=400)
+    else:
+        from .services.status import obter_estado_painel
+        try:
+            dados = obter_estado_painel(secao, campanha_id=int(campanha_id) if campanha_id else None)
+        except ValueError as erro:
+            resposta = JsonResponse({'erros': {'consulta': [str(erro)]}}, status=400)
+        except LookupError as erro:
+            resposta = JsonResponse({'erros': {'campanha_id': [str(erro)]}}, status=404)
+        else:
+            resposta = JsonResponse(dados)
+    resposta['Cache-Control'] = 'no-store'
+    return resposta
+
+
+@require_GET
 def campanha_detalhe(request, pk):
-    from .models import Campanha
+    from collections import Counter
+    from .models import Campanha, Tentativa
     campanha = get_object_or_404(Campanha.objects.prefetch_related(
         'destinatarios__empresa', 'destinatarios__tentativas__eventos'), pk=pk)
     destinatarios = list(campanha.destinatarios.all())
     tentativas = []
+    sem_tentativa = sem_tentativa_bloqueados = 0
+    confirmadas = 0
+    destinatarios_por_estado = Counter()
+    tentativas_por_estado = Counter()
     for destinatario in destinatarios:
-        tentativas_item = [_rotular_tentativa(item) for item in destinatario.tentativas.order_by('-criado_em')]
+        tentativas_item = list(destinatario.tentativas.all())
+        tentativas_item.sort(key=lambda item: (item.criado_em, item.pk), reverse=True)
+        tentativas_item = [_rotular_tentativa(item) for item in tentativas_item]
         destinatario.tentativa_recente = tentativas_item[0] if tentativas_item else None
+        if not tentativas_item:
+            sem_tentativa += 1
+            sem_tentativa_bloqueados += bool(destinatario.bloqueado_motivo)
+        else:
+            destinatarios_por_estado[tentativas_item[0].estado] += 1
         tentativas.extend(tentativas_item)
+        tentativas_por_estado.update(item.estado for item in tentativas_item)
+        confirmadas += sum(item.estado in (Tentativa.Estado.ENVIADO, Tentativa.Estado.ENTREGUE,
+                                           Tentativa.Estado.LIDO) for item in tentativas_item)
     resumo_selecao = campanha.filtros_snapshot.get('selecao')
     empresas_selecionadas = set()
     if resumo_selecao:
@@ -316,7 +443,13 @@ def campanha_detalhe(request, pk):
             }
     return render(request, 'painel/campanha_detalhe.html', _base(request, 'campanhas', campanha=campanha,
         destinatarios=destinatarios, tentativas=tentativas, resumo_selecao=resumo_selecao,
-        empresas_selecionadas=len(empresas_selecionadas)))
+        empresas_selecionadas=len(empresas_selecionadas), sem_tentativa=sem_tentativa,
+        sem_tentativa_bloqueados=sem_tentativa_bloqueados, tentativas_confirmadas=confirmadas,
+        estados_rotulados={estado: rotulo for estado, rotulo in Tentativa.Estado.choices},
+        contagem_destinatarios_estado=[(estado, rotulo, destinatarios_por_estado[estado])
+            for estado, rotulo in Tentativa.Estado.choices],
+        contagem_tentativas_estado=[(estado, rotulo, tentativas_por_estado[estado])
+            for estado, rotulo in Tentativa.Estado.choices]))
 
 
 @require_POST
@@ -367,9 +500,10 @@ def historico(request):
 
 @require_GET
 def whatsapp(request):
-    from .services.integration import configuracao_publica, estado_conexao
-    estado = estado_conexao()
-    return render(request, 'painel/whatsapp.html', _base(request, 'whatsapp', estado=estado,
+    from .services.integration import configuracao_publica
+    from .services.status import observar_conexao
+    estado = observar_conexao()
+    return render(request, 'painel/whatsapp.html', _base(request, 'whatsapp', estado_observado=estado, estado=estado,
         configuracao=configuracao_publica()))
 
 

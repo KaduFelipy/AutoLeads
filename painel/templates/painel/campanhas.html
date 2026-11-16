@@ -9,6 +9,9 @@
     {% csrf_token %}
     <input type="hidden" name="preservar_quantidades" id="preservar-quantidades" value="{{ preservar_quantidades_json }}">
     <input type="hidden" name="preservar_empresa_ids" id="preservar-empresa-ids" value="{{ preservar_empresa_ids_json }}">
+    <input type="hidden" name="pagina" id="company-page-value" value="{{ empresas_pagina.pagina }}">
+    {{ empresas_selecionadas_json|json_script:"selected-companies-data" }}
+    {{ empresas_pagina_json|json_script:"company-page-data" }}
     {% if acao != 'atualizar' and form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
     {% for erro in erros_atualizacao %}<div class="form-errors">{{ erro }}</div>{% endfor %}
     <div class="filter-grid campaign-common">
@@ -38,26 +41,20 @@
       </div>
     </section>
     <section class="selection-mode-panel" data-mode-panel="manual" aria-label="Escolher clientes">
-      <div class="selection-summary"><label for="company-search">Buscar por nome</label><input id="company-search" type="search" placeholder="Digite parte do nome" autocomplete="off"><strong>Empresas distintas marcadas: <span id="manual-total">0</span></strong></div>
-      {% for grupo in grupos %}
-        <details class="company-group" data-group-key="{{ grupo.chave }}" open>
-          <summary><span>{{ grupo.nome }}</span><span class="group-count">{{ grupo.empresas|length }} empresas · Marcadas neste grupo: <span data-group-count="{{ grupo.chave }}">{{ grupo.selecionados }}</span></span></summary>
-          <div class="company-list">
-            {% for empresa in grupo.empresas %}
-              <label class="company-choice" data-company-row data-company-name="{{ empresa.nome|lower }}"><input type="checkbox" name="empresa_ids" value="{{ empresa.pk }}" data-empresa-id="{{ empresa.pk }}" {% if empresa.pk in selecao_ids %}checked{% endif %}><span><strong>{{ empresa.nome }}</strong><small>{{ empresa.telefone|default:'Sem telefone' }}</small></span></label>
-            {% empty %}<p class="muted empty-group">Nenhuma empresa neste grupo com os filtros atuais.</p>{% endfor %}
-          </div>
-        </details>
-      {% endfor %}
-      {% if selecionados_fora_filtro %}
-        <section class="outside-selection"><h3>Selecionados fora do filtro</h3><p class="muted">Eles continuam marcados para a próxima prévia e serão excluídos pelos filtros atuais.</p>
-          {% for empresa in selecionados_fora_filtro %}<label class="company-choice"><input type="checkbox" name="empresa_ids" value="{{ empresa.pk }}" data-empresa-id="{{ empresa.pk }}" checked><span><strong>{{ empresa.nome }}</strong><small>{{ empresa.telefone|default:'Sem telefone' }}</small></span></label>{% endfor %}
-        </section>
-      {% endif %}
+      <div class="selection-summary"><label for="company-search">Buscar por nome</label><input id="company-search" name="q" type="search" maxlength="200" value="{{ busca_ui }}" placeholder="Digite parte do nome" autocomplete="off"><label for="company-classification">Classificação</label><select id="company-classification" name="classificacao"><option value="todas" {% if classificacao_ui == 'todas' %}selected{% endif %}>Todas</option>{% for grupo in grupos %}<option value="{{ grupo.chave }}" {% if classificacao_ui == grupo.chave %}selected{% endif %}>{% if grupo.tipo == 'sem_classificacao' %}{{ grupo.nome }}{% else %}{{ grupo.tipo|title }} · {{ grupo.nome }}{% endif %}</option>{% endfor %}</select><strong id="company-result-count" aria-live="polite">{{ empresas_pagina.total }} empresas</strong><strong>Empresas distintas marcadas: <span id="manual-total">{{ selecao_ids|length }}</span></strong></div>
+      <p class="muted" id="company-list-error" role="status" hidden></p>
+      <div id="company-results" data-endpoint="{% url 'empresas_selecao' %}" data-page="{{ empresas_pagina.pagina }}" data-total-pages="{{ empresas_pagina.total_paginas }}">
+        {% for empresa in empresas_pagina.empresas %}<label class="company-choice" data-company-row data-company-id="{{ empresa.id }}"><input type="checkbox" name="empresa_ids" value="{{ empresa.id }}" data-empresa-id="{{ empresa.id }}" {% if empresa.id in selecao_ids %}checked{% endif %}><span><strong>{{ empresa.nome }}</strong><small>{{ empresa.telefone|default:'Sem telefone' }}{% for tag in empresa.classificacoes %} · {{ tag.nome }}{% endfor %}</small></span></label>{% empty %}<p class="muted empty-group">Nenhuma empresa com os filtros atuais.</p>{% endfor %}
+      </div>
+      <nav id="company-pagination" aria-label="Páginas de empresas"><button type="button" class="button outline" data-page-step="-1">Anterior</button><span>{{ empresas_pagina.pagina }} / {{ empresas_pagina.total_paginas }}</span><button type="button" class="button outline" data-page-step="1">Próxima</button></nav>
+      <section class="outside-selection" id="selected-companies-summary" hidden><h3>Selecionadas fora da página</h3><div></div></section>
+      {% if selecionados_fora_filtro %}<section class="outside-selection"><h3>Selecionados fora do filtro da campanha ({{ selecionados_fora_filtro|length }})</h3><p class="muted">Eles continuam marcados para a próxima prévia e serão excluídos pelos filtros atuais.</p>{% for empresa in selecionados_fora_filtro %}<label class="company-choice"><input type="checkbox" value="{{ empresa.pk }}" data-empresa-id="{{ empresa.pk }}" checked><span><strong>{{ empresa.nome }}</strong><small>{{ empresa.telefone|default:'Sem telefone' }}</small></span></label>{% endfor %}</section>{% endif %}
+      <p class="muted">Busca e classificação mudam apenas a visualização. Os filtros da campanha definem elegibilidade.</p>
+      <div class="selection-breakdown" aria-label="Seleção por classificação">{% for grupo in grupos %}<div><span>{{ grupo.nome }}<small>Marcadas neste grupo: <span data-group-count="{{ grupo.chave }}">{{ grupo.selecionados }}</span></small></span></div>{% endfor %}</div>
     </section>
     <div class="campaign-filter-actions"><span class="muted">Atualizar a lista preserva os dados preenchidos e não cria uma campanha.</span><button class="button outline" type="submit" name="acao" value="atualizar" formnovalidate>Atualizar lista</button><button class="button primary" type="submit" name="acao" value="preparar">Preparar prévia</button></div>
   </form>
 </section>
-<section class="panel table-panel"><div class="table-wrap"><table><thead><tr><th>Campanha</th><th>Estado</th><th>Destinatários</th><th>Criada em</th><th></th></tr></thead><tbody>{% for campanha in campanhas %}<tr><td>{{ campanha.nome }}</td><td><span class="badge">{{ campanha.get_estado_display }}</span></td><td>{{ campanha.destinatarios.count }}</td><td>{{ campanha.criado_em|date:'d/m/Y H:i' }}</td><td><a href="{% url 'campanha_detalhe' campanha.pk %}">Abrir revisão →</a></td></tr>{% empty %}<tr><td colspan="5">Nenhuma campanha preparada.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="panel table-panel"><div class="table-wrap" tabindex="0" role="region" aria-label="Tabela com rolagem horizontal"><table><thead><tr><th>Campanha</th><th>Estado</th><th>Destinatários</th><th>Criada em</th><th></th></tr></thead><tbody data-campaign-table>{% for campanha in campanhas %}<tr data-campaign-row="{{ campanha.pk }}"><td data-field="nome">{{ campanha.nome }}</td><td><span class="badge" data-field="status">{{ campanha.get_estado_display }}</span><small data-field="pause">{{ campanha.motivo_pausa }}</small></td><td data-field="total">{{ campanha.destinatarios.count }}</td><td data-field="criada">{{ campanha.criado_em|date:'d/m/Y H:i' }}</td><td><a href="{% url 'campanha_detalhe' campanha.pk %}">Abrir revisão →</a></td></tr>{% empty %}<tr><td colspan="5">Nenhuma campanha preparada.</td></tr>{% endfor %}</tbody></table></div></section>
 <script src="{% static 'painel/campanhas.js' %}" defer></script>
 {% endblock %}

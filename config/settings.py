@@ -35,6 +35,8 @@ DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3',
                          'OPTIONS': {'timeout': 30, 'transaction_mode': 'IMMEDIATE'},
                          'TEST': {'NAME': ':memory:'}}}
 DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+# Suporta até 1000 IDs selecionados e campos auxiliares do formulário, mantendo teto finito.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 2000
 LANGUAGE_CODE = 'pt-br'
 TIME_ZONE = 'America/Sao_Paulo'
 USE_TZ = True

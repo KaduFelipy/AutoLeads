@@ -1,5 +1,5 @@
 {% extends 'painel/base.html' %}{% block title %}{{ titulo }}{% endblock %}{% block content %}
 <div class="page-heading"><div><p class="eyebrow">{{ eyebrow|default:'GERENCIAMENTO' }}</p><h1>{{ titulo }}</h1><p class="muted">{{ descricao }}</p></div>{% if acao_url %}<a class="button primary" href="{{ acao_url }}">{{ acao_label }}</a>{% endif %}</div>
 {% block filters %}{% endblock %}
-<section class="panel table-panel"><div class="table-wrap"><table><thead><tr>{% for coluna in colunas %}<th>{{ coluna }}</th>{% endfor %}</tr></thead><tbody>{% block rows %}{% endblock %}</tbody></table></div>{% if not itens %}<div class="empty-state compact"><strong>{{ vazio|default:'Nada para mostrar por aqui.' }}</strong><p>Quando houver registros, eles aparecerão nesta lista.</p></div>{% endif %}</section>
+<section class="panel table-panel"><div class="table-wrap" tabindex="0" role="region" aria-label="Tabela com rolagem horizontal"><table><thead><tr>{% for coluna in colunas %}<th>{{ coluna }}</th>{% endfor %}</tr></thead><tbody>{% block rows %}{% endblock %}</tbody></table></div>{% if not itens %}<div class="empty-state compact"><strong>{{ vazio|default:'Nada para mostrar por aqui.' }}</strong><p>Quando houver registros, eles aparecerão nesta lista.</p></div>{% endif %}</section>
 {% endblock %}

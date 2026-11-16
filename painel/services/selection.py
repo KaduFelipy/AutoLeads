@@ -1,10 +1,67 @@
 """Agrupamento de empresas e validação do contrato de seleção de campanhas."""
 
+import math
+import unicodedata
+
 from painel.models import Empresa, Perfil, Tag
 
 
 PLACEHOLDER_NAME = 'sem classificação'
 MAX_SELECAO = 1000
+TAMANHO_PAGINA = 50
+
+
+def _normalizar_busca(valor):
+    texto = unicodedata.normalize('NFKD', valor)
+    return ' '.join(''.join(caractere for caractere in texto
+                            if not unicodedata.category(caractere).startswith('M')).casefold().split())
+
+
+def listar_empresas_selecao(filtros_comuns, *, busca='', classificacao='todas', pagina=1):
+    """Lista empresas únicas para seleção manual, com busca literal e paginação global."""
+    if not isinstance(busca, str) or len(busca) > 200:
+        raise ValueError('A busca deve ter no máximo 200 caracteres.')
+    if isinstance(pagina, bool):
+        raise ValueError('Página inválida.')
+    try:
+        pagina = int(pagina)
+    except (TypeError, ValueError):
+        raise ValueError('Página inválida.') from None
+    if pagina < 1:
+        raise ValueError('Página inválida.')
+    grupos = listar_grupos(filtros_comuns)
+    por_chave = {grupo['chave']: grupo for grupo in grupos}
+    if classificacao != 'todas' and classificacao not in por_chave:
+        raise ValueError('Classificação inválida.')
+    busca_normalizada = _normalizar_busca(busca)
+    classificacoes = {}
+    for grupo in grupos:
+        for empresa in grupo['empresas']:
+            classificacoes.setdefault(empresa.pk, []).append({
+                'chave': grupo['chave'], 'nome': grupo['nome'], 'tipo': grupo['tipo'],
+            })
+    elegiveis = {empresa.pk: empresa for grupo in grupos for empresa in grupo['empresas']}
+    if classificacao != 'todas':
+        permitidos = {empresa.pk for empresa in por_chave[classificacao]['empresas']}
+        elegiveis = {pk: empresa for pk, empresa in elegiveis.items() if pk in permitidos}
+    if busca_normalizada:
+        elegiveis = {pk: empresa for pk, empresa in elegiveis.items()
+                     if busca_normalizada in _normalizar_busca(empresa.nome)}
+    empresas = [elegiveis[pk] for pk in sorted(elegiveis)]
+    total = len(empresas)
+    total_paginas = max(1, math.ceil(total / TAMANHO_PAGINA))
+    pagina = min(pagina, total_paginas)
+    itens = empresas[(pagina - 1) * TAMANHO_PAGINA:pagina * TAMANHO_PAGINA]
+    return {
+        'consulta': {'q': busca_normalizada, 'classificacao': classificacao,
+                     'filtros_comuns': filtros_comuns},
+        'pagina': pagina, 'tamanho_pagina': TAMANHO_PAGINA,
+        'total': total, 'total_paginas': total_paginas,
+        'empresas': [{'id': empresa.pk, 'nome': empresa.nome,
+                      'telefone': empresa.telefone or None,
+                      'classificacoes': classificacoes.get(empresa.pk, [])}
+                     for empresa in itens],
+    }
 
 
 def listar_grupos(filtros=None):

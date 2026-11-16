@@ -2,13 +2,13 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Painel local{% endblock %} · Mapa &amp; Contatos</title>
+  <title>{% block title %}Painel local{% endblock %} · AutoLeads</title>
   <link rel="stylesheet" href="{% static 'painel/painel.css' %}">
 </head>
-<body>
+<body data-state-section="{% if campanha %}campanha{% elif secao == 'contatos' or secao == 'textos' or secao == 'tags' %}outra{% else %}{{ secao }}{% endif %}" data-state-url="{% url 'estado_painel' %}"{% if campanha %} data-campaign-id="{{ campanha.pk }}"{% endif %}>
 <div class="layout">
   <aside class="sidebar">
-    <a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark">M</span><span>Mapa &amp;<br>Contatos</span></a>
+    <a class="brand" href="{% url 'dashboard' %}"><img src="{% static 'painel/AutoLeadsIcon.png' %}" alt="AutoLeads"></a>
     <p class="nav-caption">OPERAÇÃO</p>
     <nav aria-label="Navegação principal">
       <a href="{% url 'dashboard' %}" class="{% if secao == 'inicio' %}active{% endif %}">Visão geral</a>
@@ -26,11 +26,15 @@
     <div class="sidebar-foot"><span class="local-dot"></span> Ambiente local</div>
   </aside>
   <main class="main">
-    <header class="topbar"><span>Painel de prospecção</span><div class="connection"><i class="dot {% if conectado %}online{% endif %}"></i>{% if conectado %}WhatsApp conectado{% else %}WhatsApp desconectado{% endif %}</div></header>
+    <header class="topbar"><span>Painel de prospecção</span><div class="connection" id="connection-state" data-connected="{% if conectado %}true{% elif estado_conexao.consulta_ok %}false{% else %}unknown{% endif %}"><i class="dot {% if conectado %}online{% endif %}" data-connection-dot></i><span data-connection-label>{% if conectado %}WhatsApp conectado{% elif estado_conexao.consulta_ok %}WhatsApp desconectado{% else %}WhatsApp indisponível{% endif %}</span></div></header>
+    <p class="state-stale" id="state-stale" role="status" hidden>Não foi possível atualizar agora. Exibindo o último estado válido.</p>
+    <span hidden id="state-observed-at" data-time="{{ estado_conexao.verificado_em|date:'c' }}"></span>
+    <div hidden id="state-csrf">{% csrf_token %}</div>
     {% if messages %}<div class="flash-list">{% for message in messages %}<div class="flash {{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
     {% block content %}{% endblock %}
     <footer>Uso local · Horários em Brasília</footer>
   </main>
 </div>
+<script src="{% static 'painel/estado.js' %}" defer></script>
 </body>
 </html>
